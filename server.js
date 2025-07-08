@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // CONFIG
-const BOT_TOKEN = '7542704316:AAE9nDkiramhQvxTJeTSDfhAfC7n2kY1zs8';
+const BOT_TOKEN = '8114062897:AAF3iAO6t1NV_6fQHQ0BuRcmZwxIeasuiL4';
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 const BASE_DIR = __dirname;
@@ -80,7 +80,7 @@ bot.on('document', async (msg) => {
 });
 
 // Cleanup Function
-function runCleanup(reason) {
+function runCleanup(reason, callback = null) {
   fs.readdir(BASE_DIR, (err, items) => {
     if (err) return;
     let deleted = false;
@@ -95,17 +95,26 @@ function runCleanup(reason) {
     if (deleted && fs.existsSync(USERS_FILE)) {
       const users = JSON.parse(fs.readFileSync(USERS_FILE));
       const notifyBot = new TelegramBot(BOT_TOKEN);
-      const message = reason === 'disk'
-        ? '⚠️ Server was 80% full. Auto-cleanup triggered.'
-        : '🧹 Daily auto-cleanup: Old files were deleted after 1 day.';
+      let message = '';
+
+      if (reason === 'disk80') {
+        message = '⚠️ Server was 80% full. Auto-cleanup triggered.';
+      } else if (reason === 'disk70') {
+        message = '⚠️ Server was 70% full. Cache cleared. Restarting bot...';
+      } else {
+        message = '🧹 Daily auto-cleanup: Old files were deleted after 1 day.';
+      }
+
       users.forEach(chatId => {
         notifyBot.sendMessage(chatId, message);
       });
     }
+
+    if (callback) callback();
   });
 }
 
-// Daily cleanup every 1 hour (checks for files older than 1 day)
+// Daily cleanup every 1 hour (files older than 1 day)
 setInterval(() => {
   const now = Date.now();
   const cutoff = now - 24 * 60 * 60 * 1000;
@@ -139,12 +148,20 @@ setInterval(() => {
     const usedPercent = parseInt(usageLine.split(/\s+/)[4].replace('%', ''));
 
     if (usedPercent >= 80) {
-      runCleanup('disk');
+      runCleanup('disk80');
+    } else if (usedPercent >= 70) {
+      runCleanup('disk70', () => {
+        setTimeout(() => {
+          process.exit(1); // Force Render to restart this service
+        }, 5000);
+      });
     }
   } catch (e) {
-    // Silent fail (if command is blocked)
+    // Silent fail if df not supported
   }
-}, 30 * 60 * 1000);
+}, 30 * 60 * 1000); // every 30 mins
 
 // Start server
-app.listen(PORT);
+app.listen(PORT, () => {
+  console.log(`🌐 Server running on port ${PORT}`);
+});
